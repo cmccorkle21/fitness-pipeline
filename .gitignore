@@ -1,0 +1,6 @@
+.env
+fitness-venv/
+__pycache__/
+*.pyc
+*.log
+*.db
