@@ -11,5 +11,3 @@ PUSHOVER_API_TOKEN = os.getenv("PUSHOVER_API_TOKEN")
 
 if not NOTION_TOKEN:
     raise ValueError("Missing NOTION_TOKEN in .env")
-
-print(f"Loaded DROPBOX_TOKEN: {DROPBOX_TOKEN[:10]}...")  # Print the first few characters for verification
