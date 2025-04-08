@@ -4,6 +4,9 @@ from detect_warmups import detect_warmups
 from push_to_notion import push_to_notion_row  # <-- updated version
 from muscle_mapping import map_exercise_to_muscle_groups
 from notify import send_push
+from log_config import get_logger
+
+logger = get_logger("push_new_sets")
 
 # Connect to SQLite and pull only new rows
 conn = sqlite3.connect("synced_workouts.db")
@@ -26,6 +29,7 @@ df = pd.read_sql_query("""
 
 if df.empty:
     print("✅ No new sets to push.")
+    logger.info("No new sets to push.")
     conn.close()
     exit()
 
@@ -56,6 +60,7 @@ if testing:
     print(df[["date", "exercise_name", "set_order", "set_index"]])
 
 if (not testing):
+    logger.info(f"📅 Pushing {len(df)} new sets to Notion.")
     for _, row in df.iterrows():
         print(f"📅 {row['date']} — {row['exercise_name']} — Set Index: {row['set_index']}")
         success = push_to_notion_row(row)
@@ -65,6 +70,8 @@ if (not testing):
             pushed += 1
         else:
             print(f"⚠️ Skipping logging for failed row {row['id']}")
+            logger.warning(f"⚠️ Skipping logging for failed row {row['id']}")
 
 conn.close()
 print(f"✅ Successfully pushed {pushed} new sets to Notion.")
+logger.info(f"✅ Successfully pushed {pushed} new sets to Notion.")

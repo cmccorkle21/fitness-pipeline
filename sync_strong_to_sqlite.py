@@ -1,9 +1,13 @@
 import dropbox
+from dropbox.exceptions import ApiError
 import pandas as pd
 import sqlite3
 import hashlib
 from io import BytesIO
 from dropbox_auth import get_dropbox_access_token
+from log_config import get_logger
+
+logger = get_logger("sync_strong")
 
 DROPBOX_FILE_PATH = "/strong.csv"  # inside /Apps/strong-workout-sync
 LOCAL_DB_PATH = "synced_workouts.db"
@@ -18,12 +22,29 @@ def hash_row(row):
 
 # 📥 Download CSV from Dropbox
 def download_csv():
+    logger.info(f"🔄 Downloading {DROPBOX_FILE_PATH} from Dropbox...")
     dbx = dropbox.Dropbox(access_token)
-    _, res = dbx.files_download(DROPBOX_FILE_PATH)
+    
+    try:
+        metadata, res = dbx.files_download(DROPBOX_FILE_PATH)
+        return BytesIO(res.content)
+
+    except ApiError as e:
+        if isinstance(e.error, dropbox.files.DownloadError):
+            logger.error(f"❌ Dropbox DownloadError: {e}")
+        else:
+            logger.error(f"❌ Dropbox API Error: {e}")
+        raise
+
+    except Exception as e:
+        logger.error(f"❌ Unexpected Error: {e}")
+        raise
+    logger.info("🔄 Download complete.")
     return BytesIO(res.content)
 
 # 🗃 Create SQLite DB and insert new sets
 def sync_to_sqlite(csv_io):
+    logger.info("🟢 Starting sync from Strong export...")
     df = pd.read_csv(csv_io)
 
     conn = sqlite3.connect(LOCAL_DB_PATH)
@@ -80,6 +101,7 @@ def sync_to_sqlite(csv_io):
     conn.close()
 
     print(f"✅ Synced {new_rows} new set(s) to SQLite.")
+    logger.info(f"✅ Synced {new_rows} new set(s) to SQLite.")
 
 # 🏁 Run it
 if __name__ == "__main__":
