@@ -1,7 +1,8 @@
 .env
-fitness-venv/
+venv/
 __pycache__/
 *.pyc
 *.log
 *.db
 dropbox_token.json
+requirements.txt
