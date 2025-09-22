@@ -1,6 +1,5 @@
 def map_exercise_to_muscle_groups(exercise_name: str):
     import re
-    from notify import send_push
     original = exercise_name
     name = re.sub(r"[^a-z ]", "", exercise_name.lower())  # remove non-alpha
     name = re.sub(r"\s+", " ", name).strip()              # clean spaces
