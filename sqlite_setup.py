@@ -3,7 +3,8 @@ import sqlite3
 conn = sqlite3.connect("synced_workouts.db")
 cur = conn.cursor()
 
-cur.execute("""
+cur.execute(
+    """
     CREATE TABLE IF NOT EXISTS workout_sets (
         id TEXT PRIMARY KEY,
         date TEXT,
@@ -11,6 +12,7 @@ cur.execute("""
         duration TEXT,
         exercise_name TEXT,
         set_order INTEGER,
+        is_warmup BOOL
         weight REAL,
         reps INTEGER,
         distance REAL,
@@ -19,12 +21,15 @@ cur.execute("""
         workout_notes TEXT,
         rpe REAL
     )
-    """)
+    """
+)
 
-cur.execute("""
+cur.execute(
+    """
 CREATE TABLE IF NOT EXISTS pushed_set_ids (
     id TEXT PRIMARY KEY
 )
-""")
+"""
+)
 conn.commit()
 conn.close()

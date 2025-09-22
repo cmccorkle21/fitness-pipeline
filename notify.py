@@ -1,9 +1,11 @@
 # notify.py
 
 from pushover import Client
-from config import PUSHOVER_USER_KEY, PUSHOVER_API_TOKEN
+
+from config import PUSHOVER_API_TOKEN, PUSHOVER_USER_KEY
 
 client = Client(PUSHOVER_USER_KEY, api_token=PUSHOVER_API_TOKEN)
+
 
 def send_push(msg: str, title: str = "📡 Pi4one"):
     try:
