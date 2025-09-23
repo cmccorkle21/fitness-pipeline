@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 DB_PATH = "synced_workouts.db"
 TABLE = "workout_sets_enriched"
 
-st.set_page_config(page_title="Training Volume", layout="wide")
+st.set_page_config(page_title="Training Dashboard", layout="wide")
 
 
 @st.cache_data
@@ -64,11 +64,11 @@ weekly = (
 st.sidebar.header("Filters")
 all_groups = sorted(weekly["muscle_group"].unique())
 selected_groups = st.sidebar.multiselect(
-    "Muscle groups", all_groups, default=all_groups
+    "Muscle groups", all_groups, default=["Back", "Chest"]
 )
 weekly_view = weekly[weekly["muscle_group"].isin(selected_groups)]
 
-st.title("Weekly Training Volume (Primary=1.0, Secondary=0.5)")
+st.title("Weekly Training Volume")
 st.caption(
     "Excludes warmups & Rehab • Overlapping lines • Use range slider or drag to zoom"
 )
@@ -112,3 +112,60 @@ st.plotly_chart(fig, use_container_width=True)
 
 with st.expander("Show weekly table"):
     st.dataframe(weekly_view, use_container_width=True)
+
+# --- Weekly donut (pie) breakdown ---
+st.subheader("Weekly Breakdown (Donut)")
+
+# Build week options from full weekly data (not just filtered view)
+weeks = weekly["week_start"].dropna().sort_values(ascending=False).unique()
+if len(weeks) == 0:
+    st.info("No weeks available to show a breakdown.")
+else:
+    # Default to the most recent week
+    default_idx = 0
+
+    # Nice label: WeekStart – WeekEnd
+    def week_label(ts):
+        start = pd.Timestamp(ts).date()
+        end = (pd.Timestamp(ts) + pd.Timedelta(days=6)).date()
+        return f"{start} – {end}"
+
+    # Select a week to inspect
+    selected_week = st.selectbox(
+        "Select week",
+        weeks,
+        index=default_idx,
+        format_func=week_label, 
+    )
+
+    pie_df = weekly[
+        (weekly["week_start"] == selected_week)
+        # & (weekly["muscle_group"].isin(selected_groups)) # uncomment to filter donut
+    ].copy()
+
+    if pie_df.empty or pie_df["volume"].sum() == 0:
+        st.info("No volume recorded for the selected week with current filters.")
+    else:
+        # Donut chart
+        fig_pie = px.pie(
+            pie_df,
+            names="muscle_group",
+            values="volume",
+            hole=0.3,
+        )
+        fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+
+        total_sets = pie_df["volume"].sum()
+        fig_pie.add_annotation(
+            text=f"{total_sets:.1f} sets" if total_sets % 1 else f"{int(total_sets)} sets",
+            showarrow=False,
+            font_size=20,
+            x=0.5,
+            y=0.5,
+            xref="paper",
+            yref="paper",
+        )
+        fig_pie.update_layout(legend_title_text="Muscle Group")
+
+        st.plotly_chart(fig_pie, use_container_width=True)
+
