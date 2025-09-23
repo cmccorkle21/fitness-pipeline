@@ -24,11 +24,11 @@ def load_data():
             set_order,
             set_index,
             is_warmup,
-            muscle_group_primary as muscle_group,
+            muscle_group_primary AS muscle_group,
             muscle_group_secondary
         FROM {TABLE}
         WHERE is_warmup = 0
-        AND (muscle_group_primary IS NULL OR muscle_group_primary != 'Rehab')
+          AND (muscle_group IS NULL OR muscle_group != 'Rehab')
         ORDER BY day ASC;
         """
         df = pd.read_sql(q, conn, parse_dates=["day"])
@@ -40,11 +40,23 @@ df = load_data()
 # Compute week starts (Mon)
 df["week_start"] = df["day"] - pd.to_timedelta(df["day"].dt.weekday, unit="d")
 
-# Aggregate: sets per week per muscle group
+# Build weighted rows:
+# - primary rows: weight = 1.0
+# - secondary rows (when present): weight = 0.5, attributed to the secondary group
+primary = df.loc[df["muscle_group"].notna(), ["week_start", "muscle_group"]].copy()
+primary["weight"] = 1.0
+
+secondary = df.loc[df["muscle_group_secondary"].notna(), ["week_start", "muscle_group_secondary"]].copy()
+secondary = secondary.rename(columns={"muscle_group_secondary": "muscle_group"})
+secondary["weight"] = 0.5
+
+weighted = pd.concat([primary, secondary], ignore_index=True)
+
+# Aggregate: weighted sets per week per muscle group
 weekly = (
-    df.groupby(["week_start", "muscle_group"])
-    .size()
-    .reset_index(name="volume")
+    weighted.groupby(["week_start", "muscle_group"], as_index=False)["weight"]
+    .sum()
+    .rename(columns={"weight": "volume"})
     .sort_values("week_start")
 )
 
@@ -56,9 +68,9 @@ selected_groups = st.sidebar.multiselect(
 )
 weekly_view = weekly[weekly["muscle_group"].isin(selected_groups)]
 
-st.title("Weekly Training Volume")
+st.title("Weekly Training Volume (Primary=1.0, Secondary=0.5)")
 st.caption(
-    "Excludes warmups • Hover legend to focus/compare • Use range slider or drag to zoom"
+    "Excludes warmups & Rehab • Overlapping lines • Use range slider or drag to zoom"
 )
 
 # Line chart
@@ -67,18 +79,17 @@ fig = px.line(
     x="week_start",
     y="volume",
     color="muscle_group",
-    markers=True,  # dots help when weeks are sparse
-    labels={"week_start": "Week", "volume": "Sets"},
+    markers=True,
+    labels={"week_start": "Week", "volume": "Weighted Sets"},
 )
+fig.update_traces(opacity=0.75, line=dict(width=2))
 
-# Determine default 3-month window (initial view only; data not truncated)
+# Default view: last 3 months (but data not truncated; slider lets you zoom)
 max_date = weekly["week_start"].max()
 if pd.isna(max_date):
     st.warning("No data available.")
     st.stop()
 min_date = weekly["week_start"].min()
-
-# Use Timestamp everywhere to avoid type mismatch
 default_start = pd.Timestamp(max_date) - relativedelta(months=3)
 
 fig.update_xaxes(
@@ -86,9 +97,9 @@ fig.update_xaxes(
     rangeslider=dict(visible=True),
     rangeselector=dict(
         buttons=[
-            dict(count=28, step="day", stepmode="backward", label="4W"),
-            dict(count=3, step="month", stepmode="backward", label="3M"),
-            dict(count=6, step="month", stepmode="backward", label="6M"),
+            dict(count=28, step="day",   stepmode="backward", label="4W"),
+            dict(count=3,  step="month", stepmode="backward", label="3M"),
+            dict(count=6,  step="month", stepmode="backward", label="6M"),
             dict(step="all", label="All"),
         ]
     ),
@@ -97,7 +108,7 @@ fig.update_xaxes(
 
 fig.update_layout(legend_title_text="Muscle Group")
 
-st.plotly_chart(fig, width=True)
+st.plotly_chart(fig, use_container_width=True)
 
 with st.expander("Show weekly table"):
-    st.dataframe(weekly_view, width=True)
+    st.dataframe(weekly_view, use_container_width=True)
