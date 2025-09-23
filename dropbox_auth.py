@@ -1,9 +1,11 @@
 import json
-import time
 import os
+import time
+
 import requests
 
 TOKEN_FILE = os.path.join(os.path.dirname(__file__), "dropbox_token.json")
+
 
 def refresh_dropbox_token():
     with open(TOKEN_FILE, "r") as f:
@@ -31,6 +33,7 @@ def refresh_dropbox_token():
         return token_data["access_token"]
     else:
         raise Exception(f"❌ Failed to refresh Dropbox token: {response.text}")
+
 
 def get_dropbox_access_token():
     with open(TOKEN_FILE, "r") as f:
