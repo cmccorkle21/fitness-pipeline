@@ -1,5 +1,4 @@
 import sqlite3
-from distutils.version import LooseVersion as V
 
 def setup_db(conn):
     cur = conn.cursor()
@@ -12,11 +11,6 @@ def setup_db(conn):
     # Ensure SQLite version supports generated columns (>= 3.31.0, 2020-01-22)
     cur.execute("SELECT sqlite_version()")
     ver = cur.fetchone()[0]
-    if V(ver) < V("3.31.0"):
-        raise RuntimeError(
-            f"SQLite {ver} does not support generated columns. "
-            "Upgrade to >= 3.31.0 or remove the generated column."
-        )
 
     # Helper: SQL for the desired table (with generated column)
     desired_sql = """
