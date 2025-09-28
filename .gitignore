@@ -5,4 +5,3 @@ __pycache__/
 *.log
 *.db
 dropbox_token.json
-requirements.txt
