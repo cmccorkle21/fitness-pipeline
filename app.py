@@ -118,7 +118,7 @@ with st.expander("Show weekly table"):
     st.dataframe(weekly_view, use_container_width=True)
 
 # --- Weekly donut (pie) breakdown ---
-st.subheader("Weekly Breakdown (Donut)")
+st.subheader("Weekly Breakdown")
 
 # Build week options from full weekly data (not just filtered view)
 weeks = weekly["week_start"].dropna().sort_values(ascending=False).unique()
