@@ -1,3 +1,7 @@
+from log_config import get_logger
+
+logger = get_logger("muscle_mapping")
+
 def map_exercise_to_muscle_groups(exercise_name: str):
     import re
     original = exercise_name
@@ -59,10 +63,9 @@ def map_exercise_to_muscle_groups(exercise_name: str):
 
 
     if not groups:
-        print(f"❌ No match for: '{original}' → cleaned: '{name}'")
-        send_push(f"❌ No muscle group mapping for: '{original}' → cleaned: '{name}'")
+        logger.debug(f"❌ No match for: '{original}' → cleaned: '{name}'")
 
     else:
-        print(f"✅ Mapped: '{original}' → {list(groups)}")
+        logger.debug(f"✅ Mapped: '{original}' → {list(groups)}")
 
     return list(groups)

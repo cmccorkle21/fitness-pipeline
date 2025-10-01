@@ -4,6 +4,9 @@ import sqlite3
 import pandas as pd
 
 from muscle_mapping import map_exercise_to_muscle_groups
+from log_config import get_logger
+
+logger = get_logger("process_sets")
 
 DB_PATH = "synced_workouts.db"
 RAW_TABLE = "workout_sets"
@@ -102,7 +105,7 @@ def main():
     )
     conn.commit()
 
-    print(f"✅ Upserted {cursor.rowcount} rows into {ENRICHED_TABLE}.")
+    logger.debug(f"✅ Upserted {cursor.rowcount} rows into {ENRICHED_TABLE}.")
     conn.close()
 
 
