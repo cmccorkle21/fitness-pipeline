@@ -1,10 +1,9 @@
 # app.py
 import sqlite3
-from datetime import datetime
+from os.path import getmtime
 
 import pandas as pd
 import plotly.express as px
-from os.path import getmtime
 import streamlit as st
 from dateutil.relativedelta import relativedelta
 
@@ -13,9 +12,13 @@ TABLE = "workout_sets_enriched"
 
 st.set_page_config(page_title="Training Dashboard", layout="wide")
 
+
 def _db_mtime(path: str) -> float:
-    try: return getmtime(path)
-    except FileNotFoundError: return 0.0
+    try:
+        return getmtime(path)
+    except FileNotFoundError:
+        return 0.0
+
 
 @st.cache_data
 def load_data(_mitime: float) -> pd.DataFrame:
@@ -50,7 +53,9 @@ df["week_start"] = df["day"] - pd.to_timedelta(df["day"].dt.weekday, unit="d")
 primary = df.loc[df["muscle_group"].notna(), ["week_start", "muscle_group"]].copy()
 primary["weight"] = 1.0
 
-secondary = df.loc[df["muscle_group_secondary"].notna(), ["week_start", "muscle_group_secondary"]].copy()
+secondary = df.loc[
+    df["muscle_group_secondary"].notna(), ["week_start", "muscle_group_secondary"]
+].copy()
 secondary = secondary.rename(columns={"muscle_group_secondary": "muscle_group"})
 secondary["weight"] = 0.5
 
@@ -101,9 +106,9 @@ fig.update_xaxes(
     rangeslider=dict(visible=True),
     rangeselector=dict(
         buttons=[
-            dict(count=28, step="day",   stepmode="backward", label="4W"),
-            dict(count=3,  step="month", stepmode="backward", label="3M"),
-            dict(count=6,  step="month", stepmode="backward", label="6M"),
+            dict(count=28, step="day", stepmode="backward", label="4W"),
+            dict(count=3, step="month", stepmode="backward", label="3M"),
+            dict(count=6, step="month", stepmode="backward", label="6M"),
             dict(step="all", label="All"),
         ]
     ),
@@ -139,7 +144,7 @@ else:
         "Select week",
         weeks,
         index=default_idx,
-        format_func=week_label, 
+        format_func=week_label,
     )
 
     pie_df = weekly[
@@ -161,7 +166,11 @@ else:
 
         total_sets = pie_df["volume"].sum()
         fig_pie.add_annotation(
-            text=f"{total_sets:.1f} sets" if total_sets % 1 else f"{int(total_sets)} sets",
+            text=(
+                f"{total_sets:.1f} sets"
+                if total_sets % 1
+                else f"{int(total_sets)} sets"
+            ),
             showarrow=False,
             font_size=20,
             x=0.5,
@@ -172,4 +181,3 @@ else:
         fig_pie.update_layout(legend_title_text="Muscle Group")
 
         st.plotly_chart(fig_pie, use_container_width=True)
-
