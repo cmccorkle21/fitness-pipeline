@@ -41,8 +41,17 @@ def load_data(_mitime: float) -> pd.DataFrame:
         df = pd.read_sql(q, conn, parse_dates=["day"])
     return df
 
+# --- WATCHDOG LOOP ---
+current_mtime = _db_mtime(DB_PATH)
+if "last_mtime" not in st.session_state:
+    st.session_state.last_mtime = current_mtime
 
-df = load_data(_db_mtime(DB_PATH))
+if current_mtime != st.session_state.last_mtime:
+    st.session_state.last_mtime = current_mtime
+    st.cache_data.clear()       # clear Streamlit cache
+    st.experimental_rerun()     # refresh dashboard
+
+df = load_data(current_mtime)
 
 # Compute week starts (Mon)
 df["week_start"] = df["day"] - pd.to_timedelta(df["day"].dt.weekday, unit="d")
