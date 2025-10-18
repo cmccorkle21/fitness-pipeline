@@ -58,7 +58,9 @@ def parse_set_order(value):
 # 🗃 Create SQLite DB and insert new sets
 def sync_to_sqlite(csv_io):
     logger.info("🟢 Starting sync from Strong export...")
-    df = pd.read_csv(csv_io, delimiter=";")
+    df = pd.read_csv(csv_io, delimiter=",")
+    # debugging column names
+    print(list(map(repr, df.columns.tolist())))
     conn = sqlite3.connect("synced_workouts.db")
 
     setup_db(conn)
@@ -73,22 +75,28 @@ def sync_to_sqlite(csv_io):
                 """
                 INSERT INTO workout_sets (id, date, workout_name, duration,
                 exercise_name, set_order, weight, reps, distance, seconds,
-                notes, workout_notes, rpe)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                rpe)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     row_id,
                     row["Date"],
                     row["Workout Name"],
-                    row["Duration (sec)"],
+                    row["Duration"],
                     row["Exercise Name"],
                     parse_set_order(row["Set Order"]),
-                    float(row["Weight (kg)"]) if not pd.isna(row["Weight (kg)"]) else None,
+                    (
+                        float(row["Weight"])
+                        if not pd.isna(row["Weight"])
+                        else None
+                    ),
                     int(row["Reps"]) if not pd.isna(row["Reps"]) else None,
-                    float(row["Distance (meters)"]) if not pd.isna(row["Distance (meters)"]) else None,
+                    (
+                        float(row["Distance"])
+                        if not pd.isna(row["Distance"])
+                        else None
+                    ),
                     int(row["Seconds"]) if not pd.isna(row["Seconds"]) else None,
-                    row["Notes"],
-                    row["Workout Notes"],
                     float(row["RPE"]) if not pd.isna(row["RPE"]) else None,
                 ),
             )
@@ -101,7 +109,7 @@ def sync_to_sqlite(csv_io):
 
     print(f"✅ Synced {new_rows} new set(s) to SQLite.")
     logger.info(f"✅ Synced {new_rows} new set(s) to SQLite.")
-    
+
 
 # 🏁 Run it
 if __name__ == "__main__":
