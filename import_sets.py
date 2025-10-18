@@ -49,7 +49,7 @@ def download_csv():
 
 
 def parse_set_order(value):
-    if value == "W":
+    if value == "W" or value == "WARMUP":
         return -1
     else:
         return value
