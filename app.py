@@ -82,7 +82,7 @@ weekly = (
 st.sidebar.header("Filters")
 all_groups = sorted(weekly["muscle_group"].unique())
 selected_groups = st.sidebar.multiselect(
-    "Muscle groups", all_groups, default=["Back", "Chest"]
+    "Muscle groups", all_groups, default=all_groups
 )
 weekly_view = weekly[weekly["muscle_group"].isin(selected_groups)]
 
@@ -102,13 +102,13 @@ fig = px.line(
 )
 fig.update_traces(opacity=0.75, line=dict(width=2))
 
-# Default view: last 3 months (but data not truncated; slider lets you zoom)
+# Default view: last 6 months (but data not truncated; slider lets you zoom)
 max_date = weekly["week_start"].max()
 if pd.isna(max_date):
     st.warning("No data available.")
     st.stop()
 min_date = weekly["week_start"].min()
-default_start = pd.Timestamp(max_date) - relativedelta(months=3)
+default_start = pd.Timestamp(max_date) - relativedelta(months=6)
 
 fig.update_xaxes(
     range=[max(default_start, min_date), max_date],
