@@ -1,27 +1,32 @@
-# app.py
+"""Streamlit dashboard for weekly training volume."""
+
 import sqlite3
-from os.path import getmtime
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from dateutil.relativedelta import relativedelta
 
-DB_PATH = "synced_workouts.db"
+DB_PATH = Path("synced_workouts.db")
 TABLE = "workout_sets_enriched"
+REFRESH_SECONDS = 5
 
 st.set_page_config(page_title="Training Dashboard", layout="wide")
 
 
-def _db_mtime(path: str) -> float:
+def _db_signature(path: Path) -> tuple[int, int]:
     try:
-        return getmtime(path)
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_size
     except FileNotFoundError:
-        return 0.0
+        return 0, 0
 
 
-@st.cache_data
-def load_data(_mitime: float) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_data(db_signature: tuple[int, int]) -> pd.DataFrame:
+    del db_signature
+
     with sqlite3.connect(DB_PATH) as conn:
         q = f"""
         SELECT
@@ -41,106 +46,124 @@ def load_data(_mitime: float) -> pd.DataFrame:
         df = pd.read_sql(q, conn, parse_dates=["day"])
     return df
 
-# --- WATCHDOG LOOP ---
-current_mtime = _db_mtime(DB_PATH)
-if "last_mtime" not in st.session_state:
-    st.session_state.last_mtime = current_mtime
+@st.fragment(run_every=REFRESH_SECONDS)
+def watch_database() -> None:
+    current_signature = _db_signature(DB_PATH)
 
-if current_mtime != st.session_state.last_mtime:
-    st.session_state.last_mtime = current_mtime
-    st.cache_data.clear()       # clear Streamlit cache
-    st.experimental_rerun()     # refresh dashboard
+    if "last_db_signature" not in st.session_state:
+        st.session_state.last_db_signature = current_signature
+        return
 
-df = load_data(current_mtime)
+    if current_signature != st.session_state.last_db_signature:
+        st.session_state.last_db_signature = current_signature
+        st.cache_data.clear()
+        st.rerun()
 
-# Compute week starts (Mon)
-df["week_start"] = df["day"] - pd.to_timedelta(df["day"].dt.weekday, unit="d")
 
-# Build weighted rows:
-# - primary rows: weight = 1.0
-# - secondary rows (when present): weight = 0.5, attributed to the secondary group
-primary = df.loc[df["muscle_group"].notna(), ["week_start", "muscle_group"]].copy()
-primary["weight"] = 1.0
+watch_database()
 
-secondary = df.loc[
-    df["muscle_group_secondary"].notna(), ["week_start", "muscle_group_secondary"]
-].copy()
-secondary = secondary.rename(columns={"muscle_group_secondary": "muscle_group"})
-secondary["weight"] = 0.5
+def render_dashboard() -> None:
+    st.title("Weekly Training Volume")
+    st.caption(
+        "Excludes warmups & Rehab • Auto-refreshes when the database changes"
+    )
 
-weighted = pd.concat([primary, secondary], ignore_index=True)
+    if not DB_PATH.exists():
+        st.info("Waiting for the next database sync...")
+        return
 
-# Aggregate: weighted sets per week per muscle group
-weekly = (
-    weighted.groupby(["week_start", "muscle_group"], as_index=False)["weight"]
-    .sum()
-    .rename(columns={"weight": "volume"})
-    .sort_values("week_start")
-)
+    df = load_data(_db_signature(DB_PATH))
+    if df.empty:
+        st.warning("No data available.")
+        return
 
-# Sidebar filters
-st.sidebar.header("Filters")
-all_groups = sorted(weekly["muscle_group"].unique())
-selected_groups = st.sidebar.multiselect(
-    "Muscle groups", all_groups, default=all_groups
-)
-weekly_view = weekly[weekly["muscle_group"].isin(selected_groups)]
+    # Compute week starts (Mon)
+    df["week_start"] = df["day"] - pd.to_timedelta(df["day"].dt.weekday, unit="d")
 
-st.title("Weekly Training Volume")
-st.caption(
-    "Excludes warmups & Rehab • Overlapping lines • Use range slider or drag to zoom"
-)
+    # Build weighted rows:
+    # - primary rows: weight = 1.0
+    # - secondary rows (when present): weight = 0.5, attributed to the secondary group
+    primary = df.loc[df["muscle_group"].notna(), ["week_start", "muscle_group"]].copy()
+    primary["weight"] = 1.0
 
-# Line chart
-fig = px.line(
-    weekly_view,
-    x="week_start",
-    y="volume",
-    color="muscle_group",
-    markers=True,
-    labels={"week_start": "Week", "volume": "Weighted Sets"},
-)
-fig.update_traces(opacity=0.75, line=dict(width=2))
+    secondary = df.loc[
+        df["muscle_group_secondary"].notna(), ["week_start", "muscle_group_secondary"]
+    ].copy()
+    secondary = secondary.rename(columns={"muscle_group_secondary": "muscle_group"})
+    secondary["weight"] = 0.5
 
-# Default view: last 6 months (but data not truncated; slider lets you zoom)
-max_date = weekly["week_start"].max()
-if pd.isna(max_date):
-    st.warning("No data available.")
-    st.stop()
-min_date = weekly["week_start"].min()
-default_start = pd.Timestamp(max_date) - relativedelta(months=6)
+    weighted = pd.concat([primary, secondary], ignore_index=True)
 
-fig.update_xaxes(
-    range=[max(default_start, min_date), max_date],
-    rangeslider=dict(visible=True),
-    rangeselector=dict(
-        buttons=[
-            dict(count=28, step="day", stepmode="backward", label="4W"),
-            dict(count=3, step="month", stepmode="backward", label="3M"),
-            dict(count=6, step="month", stepmode="backward", label="6M"),
-            dict(step="all", label="All"),
-        ]
-    ),
-    tickformat="%b %d\n%Y",
-)
+    # Aggregate: weighted sets per week per muscle group
+    weekly = (
+        weighted.groupby(["week_start", "muscle_group"], as_index=False)["weight"]
+        .sum()
+        .rename(columns={"weight": "volume"})
+        .sort_values("week_start")
+    )
 
-fig.update_layout(legend_title_text="Muscle Group")
+    if weekly.empty:
+        st.warning("No mapped muscle groups available yet.")
+        return
 
-st.plotly_chart(fig, use_container_width=True)
+    # Sidebar filters
+    st.sidebar.header("Filters")
+    all_groups = sorted(weekly["muscle_group"].unique())
+    selected_groups = st.sidebar.multiselect(
+        "Muscle groups", all_groups, default=all_groups
+    )
+    weekly_view = weekly[weekly["muscle_group"].isin(selected_groups)]
 
-with st.expander("Show weekly table"):
-    st.dataframe(weekly_view, use_container_width=True)
+    st.title("Weekly Training Volume")
+    st.caption(
+        "Excludes warmups & Rehab • Auto-refreshes when the database changes"
+    )
 
-# --- Weekly donut (pie) breakdown ---
-st.subheader("Weekly Breakdown")
+    # Line chart
+    fig = px.line(
+        weekly_view,
+        x="week_start",
+        y="volume",
+        color="muscle_group",
+        markers=True,
+        labels={"week_start": "Week", "volume": "Weighted Sets"},
+    )
+    fig.update_traces(opacity=0.75, line=dict(width=2))
 
-# Build week options from full weekly data (not just filtered view)
-weeks = weekly["week_start"].dropna().sort_values(ascending=False).unique()
-if len(weeks) == 0:
-    st.info("No weeks available to show a breakdown.")
-else:
-    # Default to the most recent week
-    default_idx = 0
+    # Default view: last 6 months (but data not truncated; slider lets you zoom)
+    max_date = weekly["week_start"].max()
+    min_date = weekly["week_start"].min()
+    default_start = pd.Timestamp(max_date) - relativedelta(months=6)
+
+    fig.update_xaxes(
+        range=[max(default_start, min_date), max_date],
+        rangeslider=dict(visible=True),
+        rangeselector=dict(
+            buttons=[
+                dict(count=28, step="day", stepmode="backward", label="4W"),
+                dict(count=3, step="month", stepmode="backward", label="3M"),
+                dict(count=6, step="month", stepmode="backward", label="6M"),
+                dict(step="all", label="All"),
+            ]
+        ),
+        tickformat="%b %d\n%Y",
+    )
+
+    fig.update_layout(legend_title_text="Muscle Group")
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Show weekly table"):
+        st.dataframe(weekly_view, use_container_width=True)
+
+    # --- Weekly donut (pie) breakdown ---
+    st.subheader("Weekly Breakdown")
+
+    # Build week options from full weekly data (not just filtered view)
+    weeks = weekly["week_start"].dropna().sort_values(ascending=False).unique()
+    if len(weeks) == 0:
+        st.info("No weeks available to show a breakdown.")
+        return
 
     # Nice label: WeekStart – WeekEnd
     def week_label(ts):
@@ -152,41 +175,38 @@ else:
     selected_week = st.selectbox(
         "Select week",
         weeks,
-        index=default_idx,
+        index=0,
         format_func=week_label,
     )
 
-    pie_df = weekly[
-        (weekly["week_start"] == selected_week)
-        # & (weekly["muscle_group"].isin(selected_groups)) # uncomment to filter donut
-    ].copy()
+    pie_df = weekly[(weekly["week_start"] == selected_week)].copy()
 
     if pie_df.empty or pie_df["volume"].sum() == 0:
         st.info("No volume recorded for the selected week with current filters.")
-    else:
-        # Donut chart
-        fig_pie = px.pie(
-            pie_df,
-            names="muscle_group",
-            values="volume",
-            hole=0.3,
-        )
-        fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+        return
 
-        total_sets = pie_df["volume"].sum()
-        fig_pie.add_annotation(
-            text=(
-                f"{total_sets:.1f} sets"
-                if total_sets % 1
-                else f"{int(total_sets)} sets"
-            ),
-            showarrow=False,
-            font_size=20,
-            x=0.5,
-            y=0.5,
-            xref="paper",
-            yref="paper",
-        )
-        fig_pie.update_layout(legend_title_text="Muscle Group")
+    # Donut chart
+    fig_pie = px.pie(
+        pie_df,
+        names="muscle_group",
+        values="volume",
+        hole=0.3,
+    )
+    fig_pie.update_traces(textposition="inside", textinfo="percent+label")
 
-        st.plotly_chart(fig_pie, use_container_width=True)
+    total_sets = pie_df["volume"].sum()
+    fig_pie.add_annotation(
+        text=(f"{total_sets:.1f} sets" if total_sets % 1 else f"{int(total_sets)} sets"),
+        showarrow=False,
+        font_size=20,
+        x=0.5,
+        y=0.5,
+        xref="paper",
+        yref="paper",
+    )
+    fig_pie.update_layout(legend_title_text="Muscle Group")
+
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+
+render_dashboard()
