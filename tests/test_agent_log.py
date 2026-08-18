@@ -103,6 +103,70 @@ def test_log_is_idempotent(tmp_path, monkeypatch):
     assert client.calls == 1
 
 
+def test_create_accepts_workout_id_envelope(tmp_path, monkeypatch):
+    path = tmp_path / "fitness.db"
+    prepared_db(path).close()
+    monkeypatch.setattr(agent_log, "connect", lambda: db.connect(path))
+
+    class Client:
+        def create_workout(self, workout):
+            return {"workout": "created-from-id"}
+
+        def workout(self, workout_id):
+            return {
+                **TEMPLATE_WORKOUT,
+                "id": workout_id,
+                "created_at": "2024-02-03T12:30:00Z",
+                "updated_at": "2024-02-03T12:30:00Z",
+            }
+
+    result = agent_log.log_workout(PAYLOAD, client=Client())
+    assert result["status"] == "created"
+    assert result["hevy_workout_id"] == "created-from-id"
+
+
+def test_unknown_response_recovers_by_request_marker(tmp_path, monkeypatch):
+    path = tmp_path / "fitness.db"
+    prepared_db(path).close()
+    monkeypatch.setattr(agent_log, "connect", lambda: db.connect(path))
+
+    class Client:
+        def create_workout(self, workout):
+            return {"success": True}
+
+        def find_workout_by_marker(self, marker):
+            return {
+                **TEMPLATE_WORKOUT,
+                "id": "recovered-1",
+                "description": marker,
+                "created_at": "2024-02-03T12:30:00Z",
+                "updated_at": "2024-02-03T12:30:00Z",
+            }
+
+    result = agent_log.log_workout(PAYLOAD, client=Client())
+    assert result == {"status": "created", "request_id": PAYLOAD["request_id"], "hevy_workout_id": "recovered-1"}
+
+
+def test_uncertain_attempt_blocks_automatic_retry(tmp_path, monkeypatch):
+    path = tmp_path / "fitness.db"
+    prepared_db(path).close()
+    monkeypatch.setattr(agent_log, "connect", lambda: db.connect(path))
+
+    class Client:
+        calls = 0
+
+        def create_workout(self, workout):
+            self.calls += 1
+            return {"success": True}
+
+    client = Client()
+    first = agent_log.log_workout(PAYLOAD, client=client)
+    second = agent_log.log_workout(PAYLOAD, client=client)
+    assert first["status"] == "uncertain"
+    assert second["status"] == "uncertain"
+    assert client.calls == 1
+
+
 def test_request_id_cannot_be_reused_for_different_payload(tmp_path, monkeypatch):
     path = tmp_path / "fitness.db"
     conn = prepared_db(path)

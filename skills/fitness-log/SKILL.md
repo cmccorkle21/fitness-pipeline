@@ -15,7 +15,8 @@ Record user-described one-off workouts in Hevy. Hevy is canonical; successful en
 - Ask for clarification when the date, set count, or exercise choice is materially ambiguous.
 - Always dry-run before creating.
 - Never claim success unless `fitness-log add` returns `status: created` or `status: already_created` with a `hevy_workout_id`.
-- Reuse the same `request_id` only when retrying the identical payload. Never reuse it for changed data.
+- Reuse the same `request_id` only when the CLI explicitly returns `retry_safe: true`. Never automatically retry `status: uncertain` or `retry_safe: false`; inspect Hevy first.
+- Never reuse a request ID for changed data.
 
 ## Discover the interface
 
@@ -88,7 +89,7 @@ Check the returned date, resolved exercise titles, template IDs, and set counts.
 fitness-log add < /tmp/workout.json
 ```
 
-Report the returned `hevy_workout_id`. If the command fails, report the error and do not imply the workout was logged.
+Report the returned `hevy_workout_id`. If the command returns `status: uncertain` or `retry_safe: false`, do not retry automatically: inspect Hevy for the marked workout and report uncertainty. If any command fails, report the error and do not imply the workout was logged.
 
 ## Detailed sets
 

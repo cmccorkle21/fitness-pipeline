@@ -37,3 +37,10 @@ class HevyClient:
 
     def create_workout(self, workout: dict):
         return self._post("/workouts", {"workout": workout})
+
+    def find_workout_by_marker(self, marker: str):
+        """Recover a created workout after an uncertain POST response or client crash."""
+        matches = [workout for workout in self.workouts() if marker in (workout.get("description") or "")]
+        if not matches:
+            return None
+        return max(matches, key=lambda workout: workout.get("created_at") or workout.get("start_time") or "")

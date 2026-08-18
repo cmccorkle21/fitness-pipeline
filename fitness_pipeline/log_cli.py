@@ -105,7 +105,8 @@ Agent workflow:
   5. Create:   fitness-log add < workout.json
 
 Hevy remains canonical. Successful creates are immediately cached in the dashboard DB.
-All normal output is JSON. Validation errors are JSON on stderr with exit status 2.
+All output is JSON. Validation errors use exit 2 with retry_safe=true. Network or
+unknown outcomes use exit 1 with retry_safe=false and must never be retried blindly.
 """
 
 ADD_HELP = f"""\
@@ -215,8 +216,19 @@ def main() -> None:
             raise ValueError("Input must be one JSON object.")
         _print(log_workout(payload, dry_run=args.dry_run))
     except (ValueError, json.JSONDecodeError) as exc:
-        print(json.dumps({"status": "error", "error": str(exc)}), file=sys.stderr)
+        print(json.dumps({"status": "error", "error": str(exc), "retry_safe": True}), file=sys.stderr)
         raise SystemExit(2) from exc
+    except Exception as exc:
+        print(
+            json.dumps({
+                "status": "uncertain",
+                "error": str(exc),
+                "retry_safe": False,
+                "message": "The request may have reached Hevy. Do not retry automatically with a new or identical request_id.",
+            }),
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

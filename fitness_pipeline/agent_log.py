@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time as clock
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -192,6 +193,51 @@ def build_workout(conn, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _created_from_response(response: Any, client) -> dict[str, Any] | None:
+    """Accept both documented and observed Hevy creation response envelopes."""
+    candidate = response
+    if isinstance(response, dict) and "workout" in response:
+        candidate = response["workout"]
+    if isinstance(candidate, dict) and candidate.get("id"):
+        # A full Workout can be cached directly. An ID-only envelope needs one GET.
+        if candidate.get("start_time") and "exercises" in candidate:
+            return candidate
+        return client.workout(str(candidate["id"]))
+    workout_id = None
+    if isinstance(candidate, str):
+        workout_id = candidate
+    elif isinstance(response, dict):
+        workout_id = response.get("workout_id") or response.get("id")
+    if workout_id:
+        return client.workout(str(workout_id))
+    return None
+
+
+def _find_remote(client, marker: str, attempts: int = 1) -> dict[str, Any] | None:
+    finder = getattr(client, "find_workout_by_marker", None)
+    if not finder:
+        return None
+    for attempt in range(attempts):
+        found = finder(marker)
+        if found:
+            return found
+        if attempt + 1 < attempts:
+            clock.sleep(1)
+    return None
+
+
+def _record_created(conn, request_id: str, payload_hash: str, created: dict[str, Any], response: Any) -> None:
+    with conn:
+        upsert_workout(conn, created)
+        conn.execute(
+            """INSERT INTO agent_workout_requests(request_id,payload_hash,hevy_workout_id,response_json)
+               VALUES(?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET
+               payload_hash=excluded.payload_hash, hevy_workout_id=excluded.hevy_workout_id,
+               response_json=excluded.response_json""",
+            (request_id, payload_hash, created["id"], json.dumps(response, sort_keys=True)),
+        )
+
+
 def log_workout(payload: dict[str, Any], *, client=None, dry_run: bool = False) -> dict[str, Any]:
     request_id = str(payload.get("request_id", "")).strip()
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -203,27 +249,67 @@ def log_workout(payload: dict[str, Any], *, client=None, dry_run: bool = False) 
             "SELECT payload_hash,hevy_workout_id,response_json FROM agent_workout_requests WHERE request_id=?",
             (request_id,),
         ).fetchone() if request_id else None
-        if existing:
-            if existing["payload_hash"] != payload_hash:
-                raise ValueError("request_id was already used with a different payload.")
-            return {"status": "already_created", "request_id": request_id, "hevy_workout_id": existing["hevy_workout_id"]}
+        if existing and existing["payload_hash"] != payload_hash:
+            raise ValueError("request_id was already used with a different payload.")
 
         workout = build_workout(conn, payload)
-        api_workout = {**workout, "exercises": [{k: v for k, v in exercise.items() if k != "resolved_title"} for exercise in workout["exercises"]]}
+        api_workout = {
+            **workout,
+            "exercises": [
+                {key: value for key, value in exercise.items() if key != "resolved_title"}
+                for exercise in workout["exercises"]
+            ],
+        }
         if dry_run:
             return {"status": "dry_run", "request_id": request_id, "workout": workout}
 
-        response = (client or HevyClient()).create_workout(api_workout)
-        created = response.get("workout", response)
-        if not isinstance(created, dict) or not created.get("id"):
-            raise RuntimeError("Hevy created the workout but returned an unexpected response.")
+        client = client or HevyClient()
+        marker = f"[{REQUEST_MARKER}:{request_id}]"
+        if existing:
+            if existing["hevy_workout_id"] != "PENDING":
+                return {"status": "already_created", "request_id": request_id, "hevy_workout_id": existing["hevy_workout_id"]}
+            recovered = _find_remote(client, marker)
+            if recovered:
+                _record_created(conn, request_id, payload_hash, recovered, {"recovered_after_retry": True})
+                return {"status": "already_created", "request_id": request_id, "hevy_workout_id": recovered["id"]}
+            return {
+                "status": "uncertain",
+                "request_id": request_id,
+                "message": "A prior create may have reached Hevy. Do not retry automatically; inspect Hevy first.",
+            }
+
+        # Persist the attempt before network I/O. If the process crashes or Hevy returns an
+        # unknown envelope, the same request_id cannot blindly create a duplicate.
         with conn:
-            upsert_workout(conn, created)
             conn.execute(
-                """INSERT INTO agent_workout_requests(request_id,payload_hash,hevy_workout_id,response_json)
-                   VALUES(?,?,?,?)""",
-                (request_id, payload_hash, created["id"], json.dumps(response, sort_keys=True)),
+                "INSERT INTO agent_workout_requests(request_id,payload_hash,hevy_workout_id,response_json) VALUES(?,?,?,?)",
+                (request_id, payload_hash, "PENDING", json.dumps({"status": "pending"})),
             )
+
+        try:
+            response = client.create_workout(api_workout)
+        except Exception:
+            # Keep PENDING: the server may have accepted the request before the client failed.
+            raise
+
+        created = _created_from_response(response, client)
+        if not created:
+            created = _find_remote(client, marker, attempts=3)
+        if not created:
+            with conn:
+                conn.execute(
+                    "UPDATE agent_workout_requests SET response_json=? WHERE request_id=?",
+                    (json.dumps({"status": "uncertain", "response": response}, sort_keys=True), request_id),
+                )
+            shape = sorted(response) if isinstance(response, dict) else type(response).__name__
+            return {
+                "status": "uncertain",
+                "request_id": request_id,
+                "response_shape": shape,
+                "message": "Hevy accepted the request but its response could not be reconciled. Do not retry automatically.",
+            }
+
+        _record_created(conn, request_id, payload_hash, created, response)
         return {"status": "created", "request_id": request_id, "hevy_workout_id": created["id"]}
     finally:
         conn.close()
