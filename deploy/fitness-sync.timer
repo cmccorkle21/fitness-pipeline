@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Fitness Hevy sync
+
+[Timer]
+OnCalendar=*-*-* 00:10:00
+Persistent=true
+Unit=fitness-sync.service
+
+[Install]
+WantedBy=timers.target

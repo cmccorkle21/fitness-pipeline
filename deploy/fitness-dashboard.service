@@ -1,0 +1,16 @@
+[Unit]
+Description=Fitness Hevy Streamlit dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+User=cole
+Group=cole
+WorkingDirectory=/home/cole/source/fitness-pipeline
+EnvironmentFile=/home/cole/source/fitness-pipeline/.env
+ExecStart=/home/cole/.local/bin/uv run streamlit run app.py --server.address 0.0.0.0 --server.port 8502 --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
