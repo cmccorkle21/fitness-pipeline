@@ -73,6 +73,15 @@ def dashboard() -> None:
 
     days = pd.to_datetime(df["day"])
     df["week_start"] = days - pd.to_timedelta(days.dt.weekday, unit="D")
+    include_unfinished = st.toggle("Include unfinished week", value=False)
+    if not include_unfinished:
+        today = pd.Timestamp.now().normalize()
+        current_week_start = today - pd.Timedelta(days=today.weekday())
+        df = df[df["week_start"] < current_week_start]
+    if df.empty:
+        st.info("No completed weeks are available yet.")
+        return
+
     primary = df[["week_start", "primary_muscle"]].rename(columns={"primary_muscle": "muscle_group"}).assign(volume=1.0)
     secondary = df.dropna(subset=["secondary_muscle"])[["week_start", "secondary_muscle"]].rename(columns={"secondary_muscle": "muscle_group"}).assign(volume=0.5)
     weekly = pd.concat([primary, secondary], ignore_index=True).groupby(["week_start", "muscle_group"], as_index=False).volume.sum().sort_values("week_start")
