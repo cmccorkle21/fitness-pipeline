@@ -31,7 +31,7 @@ def test_migrations_are_idempotent(tmp_path):
     conn = db.connect(tmp_path / "fitness.db")
     db.migrate(conn)
     db.migrate(conn)
-    assert conn.execute("select count(*) from schema_migrations").fetchone()[0] == 2
+    assert conn.execute("select count(*) from schema_migrations").fetchone()[0] == 3
 
 
 def test_full_sync_soft_deletes_active_workout_missing_from_hevy(tmp_path, monkeypatch):

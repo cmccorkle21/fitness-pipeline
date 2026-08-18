@@ -15,6 +15,11 @@ class HevyClient:
         response.raise_for_status()
         return response.json()
 
+    def _post(self, path: str, payload: dict):
+        response = self.session.post(f"{HEVY_BASE_URL}{path}", json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def workouts(self):
         first = self._get("/workouts", page=1, pageSize=10)
         yield from first["workouts"]
@@ -29,3 +34,6 @@ class HevyClient:
 
     def workout(self, workout_id: str):
         return self._get(f"/workouts/{workout_id}")
+
+    def create_workout(self, workout: dict):
+        return self._post("/workouts", {"workout": workout})
